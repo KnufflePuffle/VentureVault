@@ -2,10 +2,10 @@ import discord
 from discord.ext import commands
 from peewee import *
 from datetime import datetime
-import uuid
+import re
 
 # Database setup
-db = SqliteDatabase('campaigns.db')
+db = SqliteDatabase('campaigns_plotpoints.db')
 
 
 class BaseModel(Model):
@@ -14,112 +14,174 @@ class BaseModel(Model):
 
 
 class Campaign(BaseModel):
-    id = CharField(primary_key=True)
     name = CharField()
-    dm_id = CharField()
-    game_system = CharField(default='Pathfinder 2E')
-    max_players = IntegerField()
-    current_players = IntegerField(default=1)
+    plot_category_id = CharField(null=True)
+
+
+class PlotPoint(BaseModel):
+    campaign = ForeignKeyField(Campaign, backref='plot_points')
+    number = CharField()  # Allows for 01, 02, 03a, 03b, etc.
+    title = CharField()
     description = TextField()
-    created_at = DateTimeField(default=datetime.now)
-    status = CharField(default='Open')  # Open, Full, In Progress, Completed
+    status = CharField(default='Inactive')  # Inactive, Active, Completed, Archived
+    potential_players = TextField(null=True)  # Storing player IDs as comma-separated string
+    channel_id = CharField(null=True)
 
 
-class Character(BaseModel):
-    campaign = ForeignKeyField(Campaign, backref='characters')
-    player_id = CharField()
-    character_name = CharField()
-    character_class = CharField()
-    character_level = IntegerField()
-
-
-class LFGCog(commands.Cog):
+class PlotPointCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         db.connect()
-        db.create_tables([Campaign, Character])
+        db.create_tables([Campaign, PlotPoint])
 
     def cog_unload(self):
         db.close()
 
-    @commands.command(name='create_campaign')
-    async def create_campaign(self, ctx, max_players: int, *, description: str):
-        """Create a new Pathfinder campaign"""
-        # Generate unique campaign ID
-        campaign_id = str(uuid.uuid4())[:8]
-
-        # Create campaign
-        campaign = Campaign.create(
-            id=campaign_id,
-            name=f"{ctx.author.name}'s Campaign",
-            dm_id=str(ctx.author.id),
-            max_players=max_players,
-            description=description
-        )
-
-        # Create embed
-        embed = discord.Embed(
-            title=f"New Campaign: {campaign.name}",
-            description=description,
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Campaign ID", value=campaign_id, inline=False)
-        embed.add_field(name="DM", value=ctx.author.mention, inline=True)
-        embed.add_field(name="Players", value=f"1/{max_players}", inline=True)
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='join_campaign')
-    async def join_campaign(self, ctx, campaign_id: str, character_name: str, character_class: str,
-                            character_level: int):
-        """Join an existing campaign"""
+    @commands.command(name='add_inactive_plot_point')
+    async def add_inactive_plot_point(self, ctx, number: str, title: str, *, description: str):
+        """Add a new inactive plot point for future exploration"""
         try:
-            campaign = Campaign.get_by_id(campaign_id)
+            # Find or create the campaign
+            campaign = Campaign.select().order_by(Campaign.id.desc()).first()
+            if not campaign:
+                campaign = Campaign.create(name=f"Campaign {datetime.now().year}")
 
-            # Check if campaign is full
-            if campaign.current_players >= campaign.max_players:
-                await ctx.send("Sorry, this campaign is full!")
+            # Validate plot point number format
+            if not re.match(r'^\d+[a-z]?$', number):
+                await ctx.send("Invalid plot point number. Use format like '01', '02', '03a', '03b'")
                 return
 
-            # Create character and add to campaign
-            Character.create(
+            # Create plot point in database
+            plot_point = PlotPoint.create(
                 campaign=campaign,
-                player_id=str(ctx.author.id),
-                character_name=character_name,
-                character_class=character_class,
-                character_level=character_level
+                number=number,
+                title=title,
+                description=description,
+                status='Inactive'
             )
 
-            # Update campaign player count
-            campaign.current_players += 1
-            campaign.save()
+            # Create an embed for the inactive plot point
+            embed = discord.Embed(
+                title=f"Inactive Plot Point {number}: {title}",
+                description=description,
+                color=discord.Color.dark_grey()
+            )
+            embed.add_field(name="Status", value="🔘 Inactive", inline=False)
+            embed.add_field(name="How to Activate", value="React with 👥 to show interest in this plot point!",
+                            inline=False)
 
-            await ctx.send(f"📜 {ctx.author.mention} joined the campaign with {character_name} the {character_class}!")
+            # Find or create overview channel
+            if not campaign.plot_category_id:
+                category = await ctx.guild.create_category_channel(f"{campaign.name} Plot Points")
+                campaign.plot_category_id = str(category.id)
+                campaign.save()
+            else:
+                category = ctx.guild.get_channel(int(campaign.plot_category_id))
 
-        except Campaign.DoesNotExist:
-            await ctx.send(f"No campaign found with ID {campaign_id}")
+            overview_channel = discord.utils.get(category.text_channels, name="plot-overview")
+            if not overview_channel:
+                overview_channel = await ctx.guild.create_text_channel(
+                    "plot-overview",
+                    category=category
+                )
 
-    @commands.command(name='list_campaigns')
-    async def list_campaigns(self, ctx):
-        """List all open campaigns"""
-        open_campaigns = Campaign.select().where(Campaign.status == 'Open')
+            # Send the inactive plot point message
+            inactive_message = await overview_channel.send(embed=embed)
 
-        if not open_campaigns:
-            await ctx.send("No open campaigns at the moment!")
+            # Add reaction for interest
+            await inactive_message.add_reaction('👥')
+
+            await ctx.send(f"Created inactive plot point {number}: '{title}'")
+
+        except Exception as e:
+            await ctx.send(f"Error creating inactive plot point: {str(e)}")
+
+    @commands.command(name='activate_plot_point')
+    async def activate_plot_point(self, ctx, number: str):
+        """Activate an inactive plot point and create a discussion channel"""
+        try:
+            # Find the plot point
+            plot_point = PlotPoint.get(
+                (PlotPoint.number == number) &
+                (PlotPoint.status == 'Inactive')
+            )
+
+            # Create channel for discussion
+            campaign = plot_point.campaign
+            category = ctx.guild.get_channel(int(campaign.plot_category_id))
+
+            # Create activation channel
+            activation_channel = await ctx.guild.create_text_channel(
+                f"plot-{number}-activation",
+                category=category
+            )
+
+            # Update plot point status and channel
+            plot_point.status = 'Active'
+            plot_point.channel_id = str(activation_channel.id)
+            plot_point.save()
+
+            # Send initial message in the activation channel
+            await activation_channel.send(
+                f"**Plot Point {number}: {plot_point.title}** is now active!\n\n"
+                f"**Description:**\n{plot_point.description}\n\n"
+                "👥 Who's interested in playing? Please comment below!"
+            )
+
+            # Update overview channel
+            overview_channel = discord.utils.get(category.text_channels, name="plot-overview")
+            await overview_channel.send(
+                f"🟢 **Plot Point {number}:** {plot_point.title} has been activated!\n"
+                f"Discussion Channel: {activation_channel.mention}"
+            )
+
+            await ctx.send(f"Activated plot point {number} and created discussion channel")
+
+        except PlotPoint.DoesNotExist:
+            await ctx.send(f"No inactive plot point found with number {number}")
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Track players interested in inactive plot points"""
+        if user.bot:
             return
 
-        for campaign in open_campaigns:
-            embed = discord.Embed(
-                title=campaign.name,
-                description=campaign.description,
-                color=discord.Color.blue()
-            )
-            embed.add_field(name="Campaign ID", value=campaign.id, inline=False)
-            embed.add_field(name="DM", value=f"<@{campaign.dm_id}>", inline=True)
-            embed.add_field(name="Players", value=f"{campaign.current_players}/{campaign.max_players}", inline=True)
+        # Check if the reaction is on an overview channel message
+        if reaction.message.channel.name != "plot-overview":
+            return
 
-            await ctx.send(embed=embed)
+        # Check if the reaction is the interest reaction
+        if str(reaction.emoji) == '👥':
+            # Find the corresponding plot point
+            try:
+                # Extract plot point number from the embed
+                embed = reaction.message.embeds[0]
+                plot_point_number = embed.title.split(':')[0].replace("Inactive Plot Point ", "").strip()
+
+                plot_point = PlotPoint.get(
+                    (PlotPoint.number == plot_point_number) &
+                    (PlotPoint.status == 'Inactive')
+                )
+
+                # Track interested players
+                interested_players = plot_point.potential_players or ""
+                player_id = str(user.id)
+
+                if player_id not in interested_players.split(','):
+                    if interested_players:
+                        interested_players += f",{player_id}"
+                    else:
+                        interested_players = player_id
+
+                plot_point.potential_players = interested_players
+                plot_point.save()
+
+                # Optionally, send a DM to the user
+                await user.send(f"You've shown interest in Plot Point {plot_point_number}: {plot_point.title}")
+
+            except PlotPoint.DoesNotExist:
+                pass
 
 
 async def setup(bot):
-    await bot.add_cog(LFGCog(bot))
+    await bot.add_cog(PlotPointCog(bot))

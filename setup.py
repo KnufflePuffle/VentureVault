@@ -19,7 +19,3 @@ setup(
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
 )
-
-
-DISCORD_BOT_TOKEN='MTM1Mzc4NjE3NzUwNDk0MDE0Mg.GWxinu.eflUQNWwEeWpYqrs__6-7g8dpbvJISzKy221Q0'
-
