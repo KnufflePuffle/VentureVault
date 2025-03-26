@@ -1,3 +1,19 @@
+discord.py
+python-dotenv
+peewee
+```
+
+To create this file:
+1. Open your project in PyCharm
+2. Right-click on the project root
+3. New -> File
+4. Name it `requirements.txt`
+5. Paste the contents above
+6. Save the file
+
+For GitHub Actions, you'll also want to create a workflow file:
+
+
 name: Discord Bot Continuous Run
 
 on:
