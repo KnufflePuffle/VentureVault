@@ -1,3 +1,4 @@
+<antArtifact identifier="github-actions-workflow" type="application/vnd.ant.code" language="yaml" title="Discord Bot GitHub Actions Workflow">
 name: Discord Bot Continuous Run
 
 on:
