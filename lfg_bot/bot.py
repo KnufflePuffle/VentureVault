@@ -4,66 +4,49 @@ import os
 import logging
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)-5s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('bot')
+logging.basicConfig(level=logging.INFO)
 
 # Intents setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-
-class LFGBot(commands.Bot):
+class VentureVaultBot(commands.Bot):
     async def setup_hook(self):
         # Load all cogs in the cogs directory
-        cog_dir = os.path.join(os.path.dirname(__file__), 'cogs')
-        for filename in os.listdir(cog_dir):
+        for filename in os.listdir('./lfg_bot/cogs'):
             if filename.endswith('.py') and not filename.startswith('__'):
                 try:
-                    await self.load_extension(f'lfg_bot.cogs.{filename[:-3]}')
-                    logger.info(f'Loaded cog: {filename}')
+                    # Use this to prevent multiple loads
+                    if f'lfg_bot.cogs.{filename[:-3]}' not in self.extensions:
+                        await self.load_extension(f'lfg_bot.cogs.{filename[:-3]}')
+                        print(f'Loaded {filename}')
                 except Exception as e:
-                    logger.error(f'Failed to load {filename}: {e}')
+                    print(f'Failed to load {filename}: {e}')
+# Create bot instance
+bot = VentureVaultBot(command_prefix='!', intents=intents)
 
-    async def on_ready(self):
-        logger.info(f'Logged in as {self.user.name}')
-        logger.info(f'Bot ID: {self.user.id}')
-        logger.info('------')
+# Error handling for command not found
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send(f"Command not found. Try !help to see available commands.")
+    else:
+        # Log other types of errors
+        print(f"An error occurred: {error}")
 
+# Optional: Add a ping command to test bot connectivity
+@bot.command()
+async def ping(ctx):
+    await ctx.send('Pong!')
 
-def create_bot():
-    """Create and return the bot instance"""
-    return LFGBot(command_prefix='!', intents=intents)
-
-
-# Error handling
-def add_error_handlers(bot):
-    @bot.event
-    async def on_command_error(ctx, error):
-        if isinstance(error, commands.CommandNotFound):
-            logger.warning(f"Command not found: {ctx.message.content}")
-            await ctx.send(f"Command not found. Try !help to see available commands.")
-        else:
-            logger.error(f"An error occurred: {error}")
-
-    # Ping command for testing
-    @bot.command()
-    async def ping(ctx):
-        await ctx.send('Pong!')
-
-
+# Run the bot (get token from environment variable or config file)
 def run_bot():
     import os
-    bot = create_bot()
-    add_error_handlers(bot)
-
-    token = os.getenv('DISCORD_TOKEN')
+    token = os.getenv('DISCORD_TOKEN')  # Make sure to set this environment variable
     if not token:
-        logger.error("No Discord token found. Set DISCORD_TOKEN environment variable.")
-        raise ValueError("No Discord token found")
-
+        raise ValueError("No Discord token found. Set DISCORD_TOKEN environment variable.")
     bot.run(token)
+
+if __name__ == '__main__':
+    run_bot()
