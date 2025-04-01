@@ -1,52 +1,59 @@
 import os
 import sys
-from dotenv import load_dotenv
 import discord
+import asyncio
 from discord.ext import commands
-import logging
-from lfg_bot.bot import VentureVaultBot  # Import the bot class from the correct location
+from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
+# Configure logging to be cleaner
+import logging
 
-# Configure logging
-#logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
-# Intents setup
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-
-def main():
-    # Print current working directory
-   # print(f"Current working directory: {os.getcwd()}")
-
-    # Print all environment variables (be careful with sensitive info in production)
-   # print("Environment variables:")
-    for key, value in os.environ.items():
-        if 'TOKEN' in key or 'SECRET' in key:
-            print(f"{key}: ***REDACTED***")
-        else:
-            print(f"{key}: {value}")
-
-    # Try to get token
-    token = os.getenv('DISCORD_TOKEN')
-
-    # Additional debugging
-    #print(f"Token from os.getenv(): {token}")
-    #print(f"Token is None: {token is None}")
-    #print(f"Token length: {len(token) if token else 'N/A'}")
-
-    # Create bot instance
-    bot = VentureVaultBot(command_prefix='!', intents=intents)
-
-    if not token:
-        print("ERROR: No Discord token found!")
-        raise ValueError("No Discord token found. Set DISCORD_TOKEN in .env file.")
-
-    bot.run(token)
+# Don't print environment variables
+if __name__ == "__main__":
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = commands.Bot(command_prefix='!', intents=intents)
 
 
-if __name__ == '__main__':
-    main()
+    @bot.event
+    async def on_ready():
+        print(f"Bot is ready! Connected as {bot.user}")
+        print(f"Connected to {len(bot.guilds)} servers")
+
+
+    # Load extensions
+    async def load_extensions():
+        # Update the path to where your cogs are located
+        cogs_path = './lfg_bot/cogs'
+        if not os.path.exists(cogs_path):
+            print(f"Warning: Path {cogs_path} does not exist.")
+            return
+
+        for filename in os.listdir(cogs_path):
+            if filename.endswith('.py'):
+                try:
+                    # Update the import path to include lfg_bot
+                    await bot.load_extension(f'lfg_bot.cogs.{filename[:-3]}')
+                    print(f"Loaded {filename}")
+                except commands.ExtensionAlreadyLoaded:
+                    print(f"Extension {filename} is already loaded. Skipping.")
+                except Exception as e:
+                    print(f"Failed to load {filename}: {e}")
+
+
+    # Run the bot
+    async def main():
+        async with bot:
+            await load_extensions()
+            await bot.start(os.getenv('DISCORD_TOKEN'))
+
+
+    # Start the bot
+    asyncio.run(main())
