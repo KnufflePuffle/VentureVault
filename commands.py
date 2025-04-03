@@ -1,7 +1,6 @@
 import re
-import sqlite3
 from discord.ext import commands
-from db import DB_PATH
+import db
 
 
 def register_commands(bot, update_overview_message):
@@ -11,9 +10,9 @@ def register_commands(bot, update_overview_message):
     async def add_plot_point(ctx, plotpoint_id: str, *, rest_of_command: str):
         """
         Add a new plot point to the system
-        Format: !add_plot_point <plotpoint_id> <PLOTTITLE> <Description>
+        Format: !add_plot_point <plotpoint_ID> <PLOTTITLE> <Description>
         """
-        # Validate plotpoint_id format (e.g., 01, 02, 03a, 03b, 04, 13, 99)
+        # Validate plotpoint_ID format (e.g., 01, 02, 03a, 03b, 04, 13, 99)
         if not re.match(r'^(0?[1-9]|[1-9][0-9])[a-z]?$', plotpoint_id):
             await ctx.reply('Invalid plot point ID format. It should be like 01, 02, 03a, 13, 27b, up to 99.')
             return
@@ -21,7 +20,7 @@ def register_commands(bot, update_overview_message):
         # Split the rest into title (all caps) and description
         parts = rest_of_command.split(' ')
         if len(parts) < 2:
-            await ctx.reply('Invalid format. Use `!add_plot_point <plotpoint_id> <PLOTTITLE> <Description>`')
+            await ctx.reply('Invalid format. Use `!add_plot_point <plotpoint_ID> <PLOTTITLE> <Description>`')
             return
 
         title_part = parts[0]
@@ -48,34 +47,18 @@ def register_commands(bot, update_overview_message):
             return
 
         # Check if this ID already exists in the database
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT id FROM plotpoints WHERE id = ?", (plotpoint_id,))
-        existing = cursor.fetchone()
-
-        if existing:
-            conn.close()
+        if db.plotpoint_exists(plotpoint_id):
             await ctx.reply(f'A plot point with ID {plotpoint_id} already exists.')
             return
 
-        # Insert new plot_point
-        try:
-            cursor.execute(
-                "INSERT INTO plotpoints (id, title, description) VALUES (?, ?, ?)",
-                (plotpoint_id, title, description)
-            )
-            conn.commit()
-            conn.close()
-
+        # Insert new plotpoint
+        if db.add_plot_point(plotpoint_id, title, description):
             await ctx.reply(f'Plot Point {plotpoint_id}: {title} has been added successfully!')
 
             # Update the overview message
             await update_overview_message(ctx.guild)
-        except Exception as e:
-            conn.close()
-            print(f"Database error: {e}")
-            await ctx.reply('An error occurred while adding the plot point.')
+        else:
+            await ctx.reply('An error occurred while adding the plot point. Check database connection.')
 
     @bot.command(name='help_lfg')
     async def help_lfg(ctx):

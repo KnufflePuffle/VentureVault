@@ -2,10 +2,9 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import sqlite3
 from pathlib import Path
 from commands import register_commands
-from db import init_db, DB_PATH
+import db
 from views import PlotpointButtons
 
 # Load environment variables
@@ -24,7 +23,10 @@ async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
 
     # Initialize the database
-    init_db()
+    if db.init_db():
+        print("Database initialized successfully")
+    else:
+        print("WARNING: Failed to initialize database")
 
     # Set up category and overview channel for each guild
     for guild in bot.guilds:
@@ -88,14 +90,10 @@ async def update_overview_message(guild, overview_channel=None):
     await overview_channel.send(
         "# Plot Point Overview\nBelow are all registered plot points with their current status:")
     await overview_channel.send(
-        "Use `!add_plot_point <ID> <TITLE> <Description>` to create a new plot point.\nExample: `!add_plot_point 01 THE BEGINNING This is where our adventure begins...`")
+        "Use `!add_plotpoint <ID> <TITLE> <Description>` to create a new plot point.\nExample: `!add_plotpoint 01 THE BEGINNING This is where our adventure begins...`")
 
     # Fetch all plotpoints from database
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM plotpoints ORDER BY id")
-    rows = cursor.fetchall()
-    conn.close()
+    rows = db.get_plotpoints()
 
     if not rows:
         await overview_channel.send("No plot points have been added yet.")
@@ -108,15 +106,7 @@ async def update_overview_message(guild, overview_channel=None):
         'Finished': []
     }
 
-    for row in rows:
-        plotpoint = {
-            'id': row[0],
-            'title': row[1],
-            'description': row[2],
-            'status': row[3],
-            'channel_id': row[4]
-        }
-
+    for plotpoint in rows:
         status = plotpoint['status']
         if status not in status_groups:
             status = 'Inactive'  # Default if status is invalid
@@ -152,33 +142,19 @@ async def on_interaction(interaction):
     action, plotpoint_id = custom_id.split('_', 1)
 
     # Fetch the plotpoint from the database
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    plotpoint = db.get_plotpoint_by_id(plotpoint_id)
 
-    cursor.execute("SELECT * FROM plotpoints WHERE id = ?", (plotpoint_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        conn.close()
+    if not plotpoint:
         await interaction.response.send_message(
             content='Plot point not found or database error occurred.',
             ephemeral=True
         )
         return
 
-    plotpoint = {
-        'id': row[0],
-        'title': row[1],
-        'description': row[2],
-        'status': row[3],
-        'channel_id': row[4]
-    }
-
     guild = interaction.guild
     category = discord.utils.get(guild.categories, name="Plot Point LFG")
 
     if not category:
-        conn.close()
         await interaction.response.send_message(
             content='Plot Point LFG category not found. Please contact an administrator.',
             ephemeral=True
@@ -207,16 +183,16 @@ async def on_interaction(interaction):
             )
 
         # Update plotpoint status in database
-        cursor.execute(
-            "UPDATE plotpoints SET status = 'Active', channel_id = ? WHERE id = ?",
-            (str(channel.id), plotpoint_id)
-        )
-        conn.commit()
-
-        await interaction.response.send_message(
-            content=f"Plot Point {plotpoint_id} has been activated!",
-            ephemeral=True
-        )
+        if db.update_plotpoint_status(plotpoint_id, 'Active', str(channel.id)):
+            await interaction.response.send_message(
+                content=f"Plot Point {plotpoint_id} has been activated!",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                content=f"Failed to update plot point status. Check database connection.",
+                ephemeral=True
+            )
 
     # Handle deactivation
     elif action == 'deactivate':
@@ -227,16 +203,16 @@ async def on_interaction(interaction):
                 await channel.delete(reason="Plot point deactivated")
 
         # Update plotpoint status in database
-        cursor.execute(
-            "UPDATE plotpoints SET status = 'Inactive', channel_id = NULL WHERE id = ?",
-            (plotpoint_id,)
-        )
-        conn.commit()
-
-        await interaction.response.send_message(
-            content=f"Plot Point {plotpoint_id} has been deactivated!",
-            ephemeral=True
-        )
+        if db.update_plotpoint_status(plotpoint_id, 'Inactive'):
+            await interaction.response.send_message(
+                content=f"Plot Point {plotpoint_id} has been deactivated!",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                content=f"Failed to update plot point status. Check database connection.",
+                ephemeral=True
+            )
 
     # Handle finishing
     elif action == 'finish':
@@ -247,18 +223,16 @@ async def on_interaction(interaction):
                 await channel.delete(reason="Plot point finished")
 
         # Update plotpoint status in database
-        cursor.execute(
-            "UPDATE plotpoints SET status = 'Finished', channel_id = NULL WHERE id = ?",
-            (plotpoint_id,)
-        )
-        conn.commit()
-
-        await interaction.response.send_message(
-            content=f"Plot Point {plotpoint_id} has been marked as finished!",
-            ephemeral=True
-        )
-
-    conn.close()
+        if db.update_plotpoint_status(plotpoint_id, 'Finished'):
+            await interaction.response.send_message(
+                content=f"Plot Point {plotpoint_id} has been marked as finished!",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                content=f"Failed to update plot point status. Check database connection.",
+                ephemeral=True
+            )
 
     # Update the overview message
     await update_overview_message(guild)
