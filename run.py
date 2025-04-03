@@ -84,9 +84,11 @@ async def update_overview_message(guild, overview_channel=None):
     except Exception as e:
         print(f"Error clearing messages: {e}")
 
-    # Send a header message
+    # Send a header message with instructions
     await overview_channel.send(
         "# Plot Point Overview\nBelow are all registered plot points with their current status:")
+    await overview_channel.send(
+        "Use `!add_plot_point <ID> <TITLE> <Description>` to create a new plot point.\nExample: `!add_plot_point 01 THE BEGINNING This is where our adventure begins...`")
 
     # Fetch all plotpoints from database
     conn = sqlite3.connect(DB_PATH)
@@ -96,7 +98,7 @@ async def update_overview_message(guild, overview_channel=None):
     conn.close()
 
     if not rows:
-        await overview_channel.send("No plot points have been added yet. Use `!add_plot_point <ID> <TITLE> <Description>` to create one!")
+        await overview_channel.send("No plot points have been added yet.")
         return
 
     # Group rows by status
