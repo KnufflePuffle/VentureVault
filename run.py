@@ -90,7 +90,7 @@ async def update_overview_message(guild, overview_channel=None):
     await overview_channel.send(
         "# Plot Point Overview\nBelow are all registered plot points with their current status:")
     await overview_channel.send(
-        "Use `!add_plotpoint <ID> <TITLE> <Description>` to create a new plot point.\nExample: `!add_plotpoint 01 THE BEGINNING This is where our adventure begins...`")
+        "Use `!add_plot_point <ID> <TITLE> <Description>` to create a new plot point.\nExample: `!add_plot_point 01 THE BEGINNING This is where our adventure begins...`")
 
     # Fetch all plotpoints from database
     rows = db.get_plotpoints()
