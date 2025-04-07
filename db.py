@@ -17,6 +17,7 @@ if not all([DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME]):
     print("FEHLER: Einige Datenbankeinstellungen fehlen in der .env-Datei")
     # Beenden des Programms oder andere Fehlerbehandlung
 
+
 def get_connection():
     """Create and return a database connection"""
     try:
@@ -140,6 +141,28 @@ def update_plotpoint_status(plotpoint_id, status, channel_id=None):
         success = True
     except Error as e:
         print(f"Error updating plotpoint: {e}")
+        connection.rollback()
+        success = False
+
+    cursor.close()
+    connection.close()
+
+    return success
+
+
+def delete_plotpoint(plotpoint_id):
+    """Delete a plotpoint from the database"""
+    connection = get_connection()
+    if not connection:
+        return False
+
+    cursor = connection.cursor()
+    try:
+        cursor.execute("DELETE FROM plotpoints WHERE id = %s", (plotpoint_id,))
+        connection.commit()
+        success = True
+    except Error as e:
+        print(f"Error deleting plotpoint: {e}")
         connection.rollback()
         success = False
 

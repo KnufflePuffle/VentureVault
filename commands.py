@@ -60,10 +60,119 @@ def register_commands(bot, update_overview_message):
         else:
             await ctx.reply('An error occurred while adding the plot point. Check database connection.')
 
+    @bot.command(name='create_poll')
+    async def create_poll(ctx, plot_point_id: str, min_players: int = 2, max_players: int = 6):
+        """
+        Erstelle eine Terminumfrage für einen Plot Point
+        Format: !create_poll <plot_point_ID> [min_spieler=2] [max_spieler=6]
+        """
+        # Hole Plot-Point-Daten aus der Datenbank
+        plotpoint = db.get_plotpoint_by_id(plot_point_id)
+
+        if not plotpoint:
+            await ctx.reply(f'Plot Point mit ID {plot_point_id} nicht gefunden.')
+            return
+
+        # Prüfe Bereichsgrenzen für Spielerzahlen
+        if min_players < 1:
+            min_players = 1
+        if max_players < min_players:
+            max_players = min_players
+        if max_players > 10:
+            max_players = 10
+
+        # Erstelle die Umfrage im aktuellen Kanal
+        from poll import poll_manager
+        await poll_manager.create_poll(
+            ctx,
+            plotpoint['id'],
+            plotpoint['title'],
+            min_players=min_players,
+            max_players=max_players,
+            game_master_id=ctx.author.id
+        )
+
+    @bot.command(name='set_gamemaster')
+    async def set_gamemaster(ctx, user: discord.Member):
+        """
+        Setzt einen Spieler als Spielleiter für die aktuelle Terminumfrage
+        Format: !set_gamemaster @Benutzername
+        """
+        # Prüfe, ob es eine aktive Umfrage gibt
+        from poll import poll_manager
+
+        if ctx.channel.id not in poll_manager.active_polls:
+            await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
+            return
+
+        # Prüfe Berechtigung (nur der Ersteller oder Admin)
+        poll_data = poll_manager.active_polls[ctx.channel.id]
+        is_creator = poll_data.get("created_by") == ctx.author.id
+        is_admin = ctx.author.guild_permissions.administrator
+
+        if not (is_creator or is_admin):
+            await ctx.reply("Nur der Ersteller der Umfrage oder ein Admin kann den Spielleiter ändern.")
+            return
+
+        # Setze den neuen Spielleiter
+        poll_data["game_master_id"] = user.id
+
+        # Aktualisiere die Umfrage
+        await poll_manager.update_poll(ctx.channel.id)
+
+        await ctx.reply(f"{user.mention} wurde als Spielleiter:in festgelegt.")
+
+    @bot.command(name='suggest_dates')
+    async def suggest_dates(ctx, *dates):
+        """
+        Fügt Terminvorschläge zur aktuellen Umfrage hinzu
+        Format: !suggest_dates YYYY-MM-DD HH:MM [YYYY-MM-DD HH:MM ...]
+        Beispiel: !suggest_dates 2025-05-01 19:00 2025-05-02 20:00
+        """
+        from poll import poll_manager
+
+        if ctx.channel.id not in poll_manager.active_polls:
+            await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
+            return
+
+        # Prüfe Berechtigung
+        poll_data = poll_manager.active_polls[ctx.channel.id]
+        is_creator = poll_data.get("created_by") == ctx.author.id
+        is_gm = poll_data.get("game_master_id") == ctx.author.id
+        is_admin = ctx.author.guild_permissions.administrator
+
+        if not (is_creator or is_gm or is_admin):
+            await ctx.reply("Nur der Ersteller, der Spielleiter oder ein Admin kann Termine vorschlagen.")
+            return
+
+        # Verarbeite die Datumsangaben (Format: YYYY-MM-DD HH:MM)
+        new_dates = []
+        i = 0
+        while i < len(dates):
+            if i + 1 < len(dates):
+                try:
+                    date_str = f"{dates[i]} {dates[i + 1]}"
+                    date = datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+                    new_dates.append(date)
+                    i += 2
+                except ValueError:
+                    await ctx.reply(
+                        f"Ungültiges Datumsformat: {dates[i]} {dates[i + 1]}. Bitte verwende YYYY-MM-DD HH:MM")
+                    return
+            else:
+                await ctx.reply("Fehlende Zeitangabe. Bitte gib Datum und Uhrzeit an.")
+                return
+
+        # Füge die neuen Termine hinzu
+        if new_dates:
+            poll_data["suggested_dates"].extend(new_dates)
+
     @bot.command(name='help_lfg')
     async def help_lfg(ctx):
         """Display help information for the LFG bot commands"""
         help_text = """
+        
+        
 # Plot Point LFG Bot Commands
 
 **!add_plot_point <ID> <TITLE> <Description>**
@@ -86,3 +195,4 @@ Use the buttons in the Plot-Point-Overview channel to:
 - Mark a plot point as finished (removes the channel)
         """
         await ctx.send(help_text)
+

@@ -8,7 +8,7 @@ class PlotpointButtons(ui.View):
         self.plotpoint_id = plotpoint_id
 
         # Add appropriate buttons based on current status
-        if current_status != 'Active':
+        if current_status != 'Active' and current_status != 'Finished':
             activate_button = ui.Button(
                 style=ButtonStyle.success,
                 label="Activate",
@@ -16,7 +16,7 @@ class PlotpointButtons(ui.View):
             )
             self.add_item(activate_button)
 
-        if current_status != 'Inactive':
+        if current_status != 'Inactive' and current_status != 'Finished':
             deactivate_button = ui.Button(
                 style=ButtonStyle.secondary,
                 label="Deactivate",
@@ -31,3 +31,11 @@ class PlotpointButtons(ui.View):
                 custom_id=f"finish_{plotpoint_id}"
             )
             self.add_item(finish_button)
+
+        # Always add the delete button
+        delete_button = ui.Button(
+            style=ButtonStyle.secondary,
+            label="❌",
+            custom_id=f"delete_{plotpoint_id}"
+        )
+        self.add_item(delete_button)
