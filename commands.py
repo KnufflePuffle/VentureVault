@@ -3,9 +3,8 @@ import discord
 from discord.ext import commands
 import datetime
 import db
-#from poll import GameSessionPoll
+import shared  # Import shared module for access to poll_manager
 
-#poll_manager = GameSessionPoll(bot)
 
 def register_commands(bot, update_overview_message):
     """Register all bot commands"""
@@ -119,8 +118,9 @@ def register_commands(bot, update_overview_message):
             max_players = 10
 
         # Erstelle die Umfrage im aktuellen Kanal
-        import shared
-        await shared.poll_manager.create_poll(
+        # Access poll_manager from shared module
+        poll_manager = shared.poll_manager
+        await poll_manager.create_poll(
             ctx,
             plotpoint['id'],
             plotpoint['title'],
@@ -136,14 +136,15 @@ def register_commands(bot, update_overview_message):
         Format: !set_gamemaster @Benutzername
         """
         # Prüfe, ob es eine aktive Umfrage gibt
-        import shared
+        # Access poll_manager from shared module
+        poll_manager = shared.poll_manager
 
-        if ctx.channel.id not in shared.poll_manager.active_polls:
+        if ctx.channel.id not in poll_manager.active_polls:
             await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
             return
 
         # Prüfe Berechtigung (nur der Ersteller oder Admin)
-        poll_data = shared.poll_manager.active_polls[ctx.channel.id]
+        poll_data = poll_manager.active_polls[ctx.channel.id]
         is_creator = poll_data.get("created_by") == ctx.author.id
         is_admin = ctx.author.guild_permissions.administrator
 
@@ -155,7 +156,7 @@ def register_commands(bot, update_overview_message):
         poll_data["game_master_id"] = user.id
 
         # Aktualisiere die Umfrage
-        await shared.poll_manager.update_poll(ctx.channel.id)
+        await poll_manager.update_poll(ctx.channel.id)
 
         await ctx.reply(f"{user.mention} wurde als Spielleitung festgelegt.")
 
@@ -166,14 +167,15 @@ def register_commands(bot, update_overview_message):
         Format: !suggest_dates YYYY-MM-DD HH:MM [YYYY-MM-DD HH:MM ...]
         Beispiel: !suggest_dates 2025-05-01 19:00 2025-05-02 20:00
         """
-        import shared
+        # Access poll_manager from shared module
+        poll_manager = shared.poll_manager
 
-        if ctx.channel.id not in shared.poll_manager.active_polls:
+        if ctx.channel.id not in poll_manager.active_polls:
             await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
             return
 
         # Prüfe Berechtigung
-        poll_data = shared.poll_manager.active_polls[ctx.channel.id]
+        poll_data = poll_manager.active_polls[ctx.channel.id]
         is_creator = poll_data.get("created_by") == ctx.author.id
         is_gm = poll_data.get("game_master_id") == ctx.author.id
         is_admin = ctx.author.guild_permissions.administrator
@@ -203,5 +205,5 @@ def register_commands(bot, update_overview_message):
         # Füge die neuen Termine hinzu
         if new_dates:
             poll_data["suggested_dates"].extend(new_dates)
-            await shared.poll_manager.update_poll(ctx.channel.id)
+            await poll_manager.update_poll(ctx.channel.id)
             await ctx.reply(f"{len(new_dates)} neue Terminvorschläge wurden hinzugefügt.")

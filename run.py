@@ -3,9 +3,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from pathlib import Path
-from commands import register_commands
 import db
-from views import PlotpointButtons, GameMasterSelectionView
 import shared
 
 # Load environment variables
@@ -17,8 +15,15 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Initialize the poll manager
-shared.init_poll_manager(bot)
+# Store bot in shared module and initialize poll manager
+shared.bot = bot
+from poll import GameSessionPoll
+poll_manager = GameSessionPoll(bot)
+shared.poll_manager = poll_manager
+
+# Now import modules that need access to the bot and poll_manager
+from commands import register_commands
+from views import PlotpointButtons, GameMasterSelectionView, ConfirmDeleteView
 
 @bot.event
 async def on_ready():
@@ -130,45 +135,6 @@ async def update_overview_message(guild, overview_channel=None):
                 )
 
 
-# Füge diese Klasse in main.py hinzu, vor der on_interaction-Funktion:
-
-class ConfirmDeleteView(discord.ui.View):
-    def __init__(self, plotpoint_id, update_overview_callback, guild):
-        super().__init__(timeout=60)  # Timeout nach 60 Sekunden
-        self.plotpoint_id = plotpoint_id
-        self.update_overview = update_overview_callback
-        self.guild = guild
-
-    @discord.ui.button(label="Ja, löschen", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Lösche den Kanal, falls vorhanden
-        plotpoint = db.get_plotpoint_by_id(self.plotpoint_id)
-        if plotpoint and plotpoint['channel_id']:
-            channel = self.guild.get_channel(int(plotpoint['channel_id']))
-            if channel:
-                await channel.delete(reason=f"Plot point {self.plotpoint_id} gelöscht")
-
-        # Lösche den Plot Point aus der Datenbank
-        if db.delete_plotpoint(self.plotpoint_id):
-            await interaction.response.edit_message(
-                content=f"Plot Point {self.plotpoint_id} wurde dauerhaft gelöscht!",
-                view=None  # Entferne die Buttons
-            )
-            # Aktualisiere die Übersicht
-            await self.update_overview(self.guild)
-        else:
-            await interaction.response.edit_message(
-                content=f"Fehler beim Löschen des Plot Points {self.plotpoint_id}.",
-                view=None
-            )
-
-    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            content="Löschvorgang abgebrochen.",
-            view=None  # Entferne die Buttons
-        )
-
 @bot.event
 async def on_interaction(interaction):
     """Handle button interactions"""
@@ -227,14 +193,15 @@ async def on_interaction(interaction):
 
         # Update plotpoint status in database
         if db.update_plotpoint_status(plotpoint_id, 'Active', str(channel.id)):
-            # NACH der Kanalerstellung und Datenbankaktualisierung, starten wir den Dialog
+            # After channel creation and database update, start the dialog
+            # Access poll_manager from shared
             await interaction.response.send_message(
                 content=f"Plot Point {plotpoint_id} wurde aktiviert! Wähle nun einen Spielleiter für die Terminumfrage:",
                 ephemeral=True,
-                view=GameMasterSelectionView(plotpoint, channel, interaction.user, poll_manager)
+                view=GameMasterSelectionView(plotpoint, channel, interaction.user, shared.poll_manager)
             )
         else:
-            # Fehler bei der Statusaktualisierung
+            # Error updating status
             await interaction.response.send_message(
                 content=f"Fehler beim Aktualisieren des Plot-Point-Status. Überprüfe die Datenbankverbindung.",
                 ephemeral=True
@@ -282,18 +249,19 @@ async def on_interaction(interaction):
 
     # Handle deletion
     elif action == 'delete':
-        # Bestätigungsnachricht senden
+        # Send confirmation message
         await interaction.response.send_message(
             content=f"Bist du sicher, dass du Plot Point {plotpoint_id} dauerhaft löschen möchtest?",
             ephemeral=True,
             view=ConfirmDeleteView(plotpoint_id, update_overview_message, guild)
         )
-        return  # Wichtig: Beende hier die Funktion, da die Bestätigung den
+        return  # Important: End the function here as the confirmation will handle the rest
+
     # Update the overview message
     await update_overview_message(guild)
 
 
-# Register commands from commands.py
+# Register commands
 register_commands(bot, update_overview_message)
 
 # Run the bot

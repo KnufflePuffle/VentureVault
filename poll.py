@@ -33,62 +33,9 @@ class GameSessionPoll:
             channel = ctx  # ctx is the channel directly
             author_id = game_master_id
 
-        def generate_custom_dates(weeks=3):
-            """
-            Generate custom date suggestions for:
-            - The next three Saturdays at 09:00 and 15:00
-            - Sundays at 09:00 and 15:00
-            - Fridays at 17:00
-
-            Args:
-                weeks (int): Number of weeks to generate dates for (default: 3)
-
-            Returns:
-                list: List of datetime objects with the requested dates and times
-            """
-            suggested_dates = []
-            today = datetime.datetime.now()
-
-            # Find the next Friday, Saturday and Sunday
-            days_ahead = {
-                4: "Friday",  # 4 represents Friday (0 is Monday in the datetime module)
-                5: "Saturday",  # 5 represents Saturday
-                6: "Sunday"  # 6 represents Sunday
-            }
-
-            # Calculate days until next Friday, Saturday, and Sunday
-            current_weekday = today.weekday()
-            days_until = {}
-
-            for day_num, day_name in days_ahead.items():
-                # Calculate days until the next occurrence of this weekday
-                days_until[day_name] = (day_num - current_weekday) % 7
-                # If today is the day and we've already passed the desired times, add 7 days
-                if days_until[day_name] == 0 and today.hour >= 17:  # Using 17 as the latest time slot
-                    days_until[day_name] = 7
-
-            # Generate dates for the specified number of weeks
-            for week in range(weeks):
-                # Friday at 17:00
-                friday_date = today + datetime.timedelta(days=days_until["Friday"] + week * 7)
-                suggested_dates.append(friday_date.replace(hour=17, minute=0, second=0, microsecond=0))
-
-                # Saturday at 09:00 and 15:00
-                saturday_date = today + datetime.timedelta(days=days_until["Saturday"] + week * 7)
-                suggested_dates.append(saturday_date.replace(hour=9, minute=0, second=0, microsecond=0))
-                suggested_dates.append(saturday_date.replace(hour=15, minute=0, second=0, microsecond=0))
-
-                # Sunday at 09:00 and 15:00
-                sunday_date = today + datetime.timedelta(days=days_until["Sunday"] + week * 7)
-                suggested_dates.append(sunday_date.replace(hour=9, minute=0, second=0, microsecond=0))
-                suggested_dates.append(sunday_date.replace(hour=15, minute=0, second=0, microsecond=0))
-
-            # Sort dates chronologically
-            suggested_dates.sort()
-
-            return suggested_dates
-
-        suggested_dates = generate_custom_dates(3)
+        # Generate default dates if none provided
+        if suggested_dates is None:
+            suggested_dates = self.generate_custom_dates(3)
 
         # Store poll information
         poll_data = {
@@ -136,6 +83,61 @@ class GameSessionPoll:
                 )
 
         return message
+
+    def generate_custom_dates(self, weeks=3):
+        """
+        Generate custom date suggestions for:
+        - The next three Saturdays at 09:00 and 15:00
+        - Sundays at 09:00 and 15:00
+        - Fridays at 17:00
+
+        Args:
+            weeks (int): Number of weeks to generate dates for (default: 3)
+
+        Returns:
+            list: List of datetime objects with the requested dates and times
+        """
+        suggested_dates = []
+        today = datetime.datetime.now()
+
+        # Find the next Friday, Saturday and Sunday
+        days_ahead = {
+            4: "Friday",  # 4 represents Friday (0 is Monday in the datetime module)
+            5: "Saturday",  # 5 represents Saturday
+            6: "Sunday"  # 6 represents Sunday
+        }
+
+        # Calculate days until next Friday, Saturday, and Sunday
+        current_weekday = today.weekday()
+        days_until = {}
+
+        for day_num, day_name in days_ahead.items():
+            # Calculate days until the next occurrence of this weekday
+            days_until[day_name] = (day_num - current_weekday) % 7
+            # If today is the day and we've already passed the desired times, add 7 days
+            if days_until[day_name] == 0 and today.hour >= 17:  # Using 17 as the latest time slot
+                days_until[day_name] = 7
+
+        # Generate dates for the specified number of weeks
+        for week in range(weeks):
+            # Friday at 17:00
+            friday_date = today + datetime.timedelta(days=days_until["Friday"] + week * 7)
+            suggested_dates.append(friday_date.replace(hour=17, minute=0, second=0, microsecond=0))
+
+            # Saturday at 09:00 and 15:00
+            saturday_date = today + datetime.timedelta(days=days_until["Saturday"] + week * 7)
+            suggested_dates.append(saturday_date.replace(hour=9, minute=0, second=0, microsecond=0))
+            suggested_dates.append(saturday_date.replace(hour=15, minute=0, second=0, microsecond=0))
+
+            # Sunday at 09:00 and 15:00
+            sunday_date = today + datetime.timedelta(days=days_until["Sunday"] + week * 7)
+            suggested_dates.append(sunday_date.replace(hour=9, minute=0, second=0, microsecond=0))
+            suggested_dates.append(sunday_date.replace(hour=15, minute=0, second=0, microsecond=0))
+
+        # Sort dates chronologically
+        suggested_dates.sort()
+
+        return suggested_dates
 
     async def _create_poll_embed(self, poll_data):
         """Create an embed for the poll"""
@@ -222,7 +224,7 @@ class GameSessionPoll:
             # Format: Mon, 01.01. 19:00 | 👍 3
             formatted_date = date.strftime("%a, %d.%m. %H:%M")
             count = sum(1 for p in poll_data["participants"].values()
-                        if p.get(date.isoformat(), False))
+                         if p.get(date.isoformat(), False))
 
             # Add emoji indicators
             if count >= poll_data["min_players"]:

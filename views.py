@@ -45,14 +45,14 @@ class PlotpointButtons(ui.View):
 # Game Master Selection View
 class GameMasterSelectionView(discord.ui.View):
     def __init__(self, plotpoint, channel, user, poll_manager):
-        super().__init__(timeout=300)  # 5 Minuten Timeout
+        super().__init__(timeout=300)  # 5 minute timeout
         self.plotpoint = plotpoint
         self.channel = channel
         self.activating_user = user
         self.poll_manager = poll_manager
         self.selected_gm = None
 
-        # Füge ein Dropdown für Spielleiter-Auswahl hinzu
+        # Add dropdown for GM selection
         self.gm_select = discord.ui.UserSelect(
             placeholder="Wähle eine Spielleitung aus",
             min_values=1,
@@ -61,7 +61,7 @@ class GameMasterSelectionView(discord.ui.View):
         self.gm_select.callback = self.gm_select_callback
         self.add_item(self.gm_select)
 
-        # Oder-Button für "Ich selbst"
+        # "Self" button
         self.self_button = discord.ui.Button(
             label="Ich selbst als Spielleitung",
             style=discord.ButtonStyle.primary
@@ -69,7 +69,7 @@ class GameMasterSelectionView(discord.ui.View):
         self.self_button.callback = self.self_button_callback
         self.add_item(self.self_button)
 
-        # Abbrechen-Button
+        # Cancel button
         self.cancel_button = discord.ui.Button(
             label="Ohne Spielleitung fortfahren",
             style=discord.ButtonStyle.secondary
@@ -106,21 +106,32 @@ class GameMasterSelectionView(discord.ui.View):
 
     async def create_poll(self, interaction):
         """Create the poll with the selected game master"""
-
-        # Create dummy context
-        class DummyContext:
-            def __init__(self, channel, author):
-                self.channel = channel
-                self.author = author
-                self.guild = channel.guild
-
-            async def send(self, *args, **kwargs):
-                return await self.channel.send(*args, **kwargs)  # Hier 'self.channel' statt 'channel'
-
-        dummy_ctx = DummyContext(self.channel, interaction.user)
-
         try:
+            # Create dummy context
+            class DummyContext:
+                def __init__(self, channel, author):
+                    self.channel = channel
+                    self.author = author
+                    self.guild = channel.guild
+
+                async def send(self, *args, **kwargs):
+                    return await self.channel.send(*args, **kwargs)
+
+            dummy_ctx = DummyContext(self.channel, interaction.user)
+
             # Send poll message to the channel
+            # Ensure poll_manager is accessible
+            if not self.poll_manager:
+                # Add error handling for missing poll_manager
+                import shared
+                self.poll_manager = shared.poll_manager
+
+                if not self.poll_manager:
+                    await self.channel.send(
+                        "**ERROR:** Poll manager is not initialized. Please contact an administrator.")
+                    return
+
+            # Try to create the poll
             await self.poll_manager.create_poll(
                 dummy_ctx,
                 self.plotpoint['id'],
@@ -130,7 +141,7 @@ class GameMasterSelectionView(discord.ui.View):
                 game_master_id=self.selected_gm
             )
 
-            # Send a helpful message about poll commands
+            # Send helpful message about poll commands
             await self.channel.send(
                 "**Terminumfrage wurde erstellt!**\n\n"
                 f"{'Spielleiter wurde festgelegt.' if self.selected_gm else 'Kein Spielleiter festgelegt.'}\n"
@@ -139,6 +150,53 @@ class GameMasterSelectionView(discord.ui.View):
                 "- `!set_gamemaster @Benutzername` um eine Spielleitung festzulegen oder zu ändern"
             )
         except Exception as e:
-            # Fehlerbehandlung
-            print(f"Fehler beim Erstellen der Umfrage: {e}")
+            # Better error handling
+            import traceback
+            print(f"Error creating poll: {e}")
+            print(traceback.format_exc())
             await self.channel.send(f"**Fehler beim Erstellen der Terminumfrage**: {e}")
+
+            # Try to provide more diagnostics
+            if hasattr(self.poll_manager, 'active_polls'):
+                poll_count = len(self.poll_manager.active_polls)
+                await self.channel.send(f"Diagnostic info: Poll manager has {poll_count} active polls")
+
+
+# Confirmation view for delete action
+class ConfirmDeleteView(discord.ui.View):
+    def __init__(self, plotpoint_id, update_overview_callback, guild):
+        super().__init__(timeout=60)  # 1 minute timeout
+        self.plotpoint_id = plotpoint_id
+        self.update_overview = update_overview_callback
+        self.guild = guild
+
+    @discord.ui.button(label="Ja, löschen", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Delete the channel if it exists
+        import db
+        plotpoint = db.get_plotpoint_by_id(self.plotpoint_id)
+        if plotpoint and plotpoint['channel_id']:
+            channel = self.guild.get_channel(int(plotpoint['channel_id']))
+            if channel:
+                await channel.delete(reason=f"Plot point {self.plotpoint_id} gelöscht")
+
+        # Delete the plot point from the database
+        if db.delete_plotpoint(self.plotpoint_id):
+            await interaction.response.edit_message(
+                content=f"Plot Point {self.plotpoint_id} wurde dauerhaft gelöscht!",
+                view=None  # Remove the buttons
+            )
+            # Update the overview
+            await self.update_overview(self.guild)
+        else:
+            await interaction.response.edit_message(
+                content=f"Fehler beim Löschen des Plot Points {self.plotpoint_id}.",
+                view=None
+            )
+
+    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            content="Löschvorgang abgebrochen.",
+            view=None  # Remove the buttons
+        )
