@@ -30,7 +30,7 @@ def get_connection():
         )
         return connection
     except Error as e:
-        print(f"Error connecting to MySQL database: {e}")
+        print(f"Fehler beim Verbinden mit MySQL Datenbank: {e}")
         return None
 
 
@@ -38,7 +38,7 @@ def init_db():
     """Initialize the database and create necessary tables if they don't exist"""
     connection = get_connection()
     if not connection:
-        print("Failed to connect to database. Check your credentials.")
+        print("Fehler bei der Verbindung zur Datenbank. Check die Anmeldeinformationen.")
         return False
 
     cursor = connection.cursor()
@@ -109,7 +109,7 @@ def add_plot_point(plotpoint_id, title, description):
         connection.commit()
         success = True
     except Error as e:
-        print(f"Error adding plotpoint: {e}")
+        print(f"Fehler beim Hinzufügen des plotpoint: {e}")
         connection.rollback()
         success = False
 
@@ -140,7 +140,7 @@ def update_plotpoint_status(plotpoint_id, status, channel_id=None):
         connection.commit()
         success = True
     except Error as e:
-        print(f"Error updating plotpoint: {e}")
+        print(f"Fehler beim updaten von plotpoint: {e}")
         connection.rollback()
         success = False
 
@@ -162,7 +162,7 @@ def delete_plotpoint(plotpoint_id):
         connection.commit()
         success = True
     except Error as e:
-        print(f"Error deleting plotpoint: {e}")
+        print(f"Fehler beim Löschen von plotpoint: {e}")
         connection.rollback()
         success = False
 

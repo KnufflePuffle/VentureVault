@@ -11,20 +11,84 @@ class GameSessionPoll:
         self.active_polls = {}
 
     async def create_poll(self, ctx, plot_point_id, plot_title,
-                          min_players=2, max_players=6,
+                          min_players=3, max_players=7,
                           game_master_id=None, suggested_dates=None):
         """
         Create a new game session poll in the specified channel
+
+        Parameters:
+        - ctx: Command context or channel object
+        - plot_point_id: ID of the plot point
+        - plot_title: Title of the plot point
+        - min_players: Minimum number of players needed
+        - max_players: Maximum number of players allowed
+        - game_master_id: User ID of the game master (optional)
+        - suggested_dates: List of datetime objects for suggested dates (optional)
         """
-        # Default dates if none provided (next 7 days, starting tomorrow)
-        if not suggested_dates:
+        # Handle different types of ctx parameter
+        if hasattr(ctx, 'channel'):
+            channel = ctx.channel
+            author_id = ctx.author.id if hasattr(ctx, 'author') else game_master_id
+        else:
+            channel = ctx  # ctx is the channel directly
+            author_id = game_master_id
+
+        def generate_custom_dates(weeks=3):
+            """
+            Generate custom date suggestions for:
+            - The next three Saturdays at 09:00 and 15:00
+            - Sundays at 09:00 and 15:00
+            - Fridays at 17:00
+
+            Args:
+                weeks (int): Number of weeks to generate dates for (default: 3)
+
+            Returns:
+                list: List of datetime objects with the requested dates and times
+            """
             suggested_dates = []
-            tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
-            for i in range(7):
-                date = tomorrow + datetime.timedelta(days=i)
-                # Add two time slots per day (19:00 and 20:00)
-                suggested_dates.append(date.replace(hour=19, minute=0, second=0, microsecond=0))
-                suggested_dates.append(date.replace(hour=20, minute=0, second=0, microsecond=0))
+            today = datetime.datetime.now()
+
+            # Find the next Friday, Saturday and Sunday
+            days_ahead = {
+                4: "Friday",  # 4 represents Friday (0 is Monday in the datetime module)
+                5: "Saturday",  # 5 represents Saturday
+                6: "Sunday"  # 6 represents Sunday
+            }
+
+            # Calculate days until next Friday, Saturday, and Sunday
+            current_weekday = today.weekday()
+            days_until = {}
+
+            for day_num, day_name in days_ahead.items():
+                # Calculate days until the next occurrence of this weekday
+                days_until[day_name] = (day_num - current_weekday) % 7
+                # If today is the day and we've already passed the desired times, add 7 days
+                if days_until[day_name] == 0 and today.hour >= 17:  # Using 17 as the latest time slot
+                    days_until[day_name] = 7
+
+            # Generate dates for the specified number of weeks
+            for week in range(weeks):
+                # Friday at 17:00
+                friday_date = today + datetime.timedelta(days=days_until["Friday"] + week * 7)
+                suggested_dates.append(friday_date.replace(hour=17, minute=0, second=0, microsecond=0))
+
+                # Saturday at 09:00 and 15:00
+                saturday_date = today + datetime.timedelta(days=days_until["Saturday"] + week * 7)
+                suggested_dates.append(saturday_date.replace(hour=9, minute=0, second=0, microsecond=0))
+                suggested_dates.append(saturday_date.replace(hour=15, minute=0, second=0, microsecond=0))
+
+                # Sunday at 09:00 and 15:00
+                sunday_date = today + datetime.timedelta(days=days_until["Sunday"] + week * 7)
+                suggested_dates.append(sunday_date.replace(hour=9, minute=0, second=0, microsecond=0))
+                suggested_dates.append(sunday_date.replace(hour=15, minute=0, second=0, microsecond=0))
+
+            # Sort dates chronologically
+            suggested_dates.sort()
+
+            return suggested_dates
+
+        suggested_dates = generate_custom_dates(3)
 
         # Store poll information
         poll_data = {
@@ -37,30 +101,38 @@ class GameSessionPoll:
             "participants": {},  # user_id -> {date -> availability}
             "poll_message_id": None,
             "created_at": datetime.datetime.now(),
-            "created_by": ctx.author.id
+            "created_by": author_id
         }
 
-        # Create initial poll message
+        # Create initial poll embed
         embed = await self._create_poll_embed(poll_data)
 
         # Send poll message with components
-        message = await ctx.send(
-            "## 📅 Spieltermin-Umfrage für Plot Point erstellt!",
-            embed=embed,
-            view=GameSessionPollView(self, poll_data)
-        )
+        if hasattr(ctx, 'send'):
+            message = await ctx.send(
+                "## 📅 Spieltermin-Umfrage für Plot Point erstellt!",
+                embed=embed,
+                view=GameSessionPollView(self, poll_data)
+            )
+        else:
+            message = await channel.send(
+                "## 📅 Spieltermin-Umfrage für Plot Point erstellt!",
+                embed=embed,
+                view=GameSessionPollView(self, poll_data)
+            )
 
         # Store message ID
         poll_data["poll_message_id"] = message.id
-        self.active_polls[ctx.channel.id] = poll_data
+        self.active_polls[channel.id] = poll_data
 
         # If GM is specified, ask them to select availability first
         if game_master_id:
-            gm_user = ctx.guild.get_member(game_master_id)
+            guild = channel.guild
+            gm_user = guild.get_member(game_master_id)
             if gm_user:
-                await ctx.send(
-                    f"{gm_user.mention} Als Spielleiter:in wirst du gebeten, zuerst deine Verfügbarkeit anzugeben. "
-                    f"Nur Zeiten, die du auswählst, werden für andere Spieler zur Verfügung stehen."
+                await channel.send(
+                    f"{gm_user.mention} Als Spielleitung wirst du gebeten, zuerst deine Verfügbarkeit anzugeben. "
+                    f"Nur Zeiten, die du auswählst, werden für andere Spieler:in zur Verfügung stehen."
                 )
 
         return message
@@ -88,13 +160,13 @@ class GameSessionPoll:
         # Add game master if available
         if poll_data["game_master_id"]:
             embed.add_field(
-                name="Spielleiter:in",
+                name="Spielleitung",
                 value=f"<@{poll_data['game_master_id']}>",
                 inline=True
             )
         else:
             embed.add_field(
-                name="Spielleiter:in",
+                name="Spielleitung",
                 value="Noch nicht festgelegt",
                 inline=True
             )
@@ -142,7 +214,7 @@ class GameSessionPoll:
 
             # If GM hasn't selected any dates yet
             if not available_dates and gm_id in poll_data["participants"]:
-                return "Spielleiter:in hat noch keine Termine ausgewählt."
+                return "Spielleitung hat noch keine Termine ausgewählt."
 
         # Build date table
         table = []
@@ -179,7 +251,7 @@ class GameSessionPoll:
                 continue
 
             is_gm = user_id == poll_data.get("game_master_id")
-            role = "👑 Spielleiter:in" if is_gm else "👤 Spieler:in"
+            role = "👑 Spielleitung" if is_gm else "👤 Spieler:in"
 
             participants.append(f"<@{user_id}> ({role}) - {available_count} Termine möglich")
 
@@ -256,7 +328,7 @@ class GameSessionPoll:
         # Add game master
         if poll_data["game_master_id"]:
             embed.add_field(
-                name="Spielleiter:in",
+                name="Spielleitung",
                 value=f"<@{poll_data['game_master_id']}>",
                 inline=False
             )
@@ -521,7 +593,7 @@ class GameSessionPollView(discord.ui.View):
 
         if not (is_gm or is_creator or is_admin):
             await interaction.response.send_message(
-                "Nur Spielleiter:innen, Ersteller:innen der Umfrage oder Admins können den Termin festlegen.",
+                "Nur Spielleitung, Ersteller:innen der Umfrage oder Admins können den Termin festlegen.",
                 ephemeral=True
             )
             return

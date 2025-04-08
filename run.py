@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from commands import register_commands
 import db
-from views import PlotpointButtons
-from poll import GameSessionPoll
+from views import PlotpointButtons, GameMasterSelectionView
+import shared
 
 # Load environment variables
 load_dotenv()
@@ -18,7 +18,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Initialize the poll manager
-poll_manager = GameSessionPoll(bot)
+shared.init_poll_manager(bot)
 
 @bot.event
 async def on_ready():
@@ -178,6 +178,7 @@ async def on_interaction(interaction):
     custom_id = interaction.data['custom_id']
     if not (custom_id.startswith('activate_') or
             custom_id.startswith('deactivate_') or
+            custom_id.startswith('delete_') or
             custom_id.startswith('finish_')):
         return
 
@@ -221,27 +222,21 @@ async def on_interaction(interaction):
             await channel.send(
                 f"# Plot Point {plotpoint['id']}: {plotpoint['title']}\n"
                 f"{plotpoint['description']}\n\n"
-                f"In diesem Kanal kann die Koordination des Plot Points oder Ähnliches besprochen werden."
-            )
-        # Update plotpoint status in database
-        if db.update_plotpoint_status(plotpoint_id, 'Active', str(channel.id)):
-            await interaction.response.send_message(
-                content=f"Plot Point {plotpoint_id} has been activated!",
-                ephemeral=True
+                f"In diesem Kanal kann die Koordination des Plot Points besprochen werden."
             )
 
-            # Start a game session poll in the new channel
-            await poll_manager.create_poll(
-                channel,
-                plotpoint['id'],
-                plotpoint['title'],
-                min_players=3,  # Standardwert, kann angepasst werden
-                max_players=7,  # Standardwert, kann angepasst werden
-                game_master_id=interaction.user.id  # Der Aktivierende wird als Spielleiter eingetragen
+        # Update plotpoint status in database
+        if db.update_plotpoint_status(plotpoint_id, 'Active', str(channel.id)):
+            # NACH der Kanalerstellung und Datenbankaktualisierung, starten wir den Dialog
+            await interaction.response.send_message(
+                content=f"Plot Point {plotpoint_id} wurde aktiviert! Wähle nun einen Spielleiter für die Terminumfrage:",
+                ephemeral=True,
+                view=GameMasterSelectionView(plotpoint, channel, interaction.user, poll_manager)
             )
         else:
+            # Fehler bei der Statusaktualisierung
             await interaction.response.send_message(
-                content=f"Failed to update plot point status. Check database connection.",
+                content=f"Fehler beim Aktualisieren des Plot-Point-Status. Überprüfe die Datenbankverbindung.",
                 ephemeral=True
             )
 

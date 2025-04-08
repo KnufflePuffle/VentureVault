@@ -1,7 +1,11 @@
 import re
+import discord
 from discord.ext import commands
+import datetime
 import db
+#from poll import GameSessionPoll
 
+#poll_manager = GameSessionPoll(bot)
 
 def register_commands(bot, update_overview_message):
     """Register all bot commands"""
@@ -14,13 +18,13 @@ def register_commands(bot, update_overview_message):
         """
         # Validate plotpoint_ID format (e.g., 01, 02, 03a, 03b, 04, 13, 99)
         if not re.match(r'^(0?[1-9]|[1-9][0-9])[a-z]?$', plotpoint_id):
-            await ctx.reply('Invalid plot point ID format. It should be like 01, 02, 03a, 13, 27b, up to 99.')
+            await ctx.reply('Invalides plot point ID Format. Es sollte wie 01, 02, 03a, 13, 27b, bis zu 99 sein.')
             return
 
         # Split the rest into title (all caps) and description
         parts = rest_of_command.split(' ')
         if len(parts) < 2:
-            await ctx.reply('Invalid format. Use `!add_plot_point <plotpoint_ID> <PLOTTITLE> <Description>`')
+            await ctx.reply('Invalides Format. Benutze `!add_plot_point <plotpoint_ID> <PLOTTITEL> <Beschreibung>`')
             return
 
         title_part = parts[0]
@@ -35,7 +39,7 @@ def register_commands(bot, update_overview_message):
 
         if description_start_idx >= len(parts):
             # No description provided or all words are uppercase
-            await ctx.reply('Please provide a description after your all-caps title.')
+            await ctx.reply('Bitte gibt eine Beschreibung nach dem all-caps Titel an.')
             return
 
         title = title_part
@@ -43,22 +47,55 @@ def register_commands(bot, update_overview_message):
 
         # Ensure title is all uppercase
         if not title.isupper():
-            await ctx.reply('The plot title must be in ALL CAPS.')
+            await ctx.reply('Der Plot titel muss ALL CAPS sein.')
             return
 
         # Check if this ID already exists in the database
         if db.plotpoint_exists(plotpoint_id):
-            await ctx.reply(f'A plot point with ID {plotpoint_id} already exists.')
+            await ctx.reply(f'Ein plot point mit ID {plotpoint_id} existiert bereits.')
             return
 
         # Insert new plotpoint
         if db.add_plot_point(plotpoint_id, title, description):
-            await ctx.reply(f'Plot Point {plotpoint_id}: {title} has been added successfully!')
+            await ctx.reply(f'Plot Point {plotpoint_id}: {title} wurde erfolgreich hinzugefügt!')
 
             # Update the overview message
             await update_overview_message(ctx.guild)
         else:
-            await ctx.reply('An error occurred while adding the plot point. Check database connection.')
+            await ctx.reply('Ein Fehler beim Hinzufügen des Plot Points. Check die Database Verbindung.')
+
+    @bot.command(name='help_lfg')
+    async def help_lfg(ctx):
+        """Display help information for the LFG bot commands"""
+        help_text = """
+    # Plot Point LFG Bot Commands
+
+    **!add_plotpoint <ID> <TITLE> <Description>**
+    Add a new plot point to the system.
+    - ID: Must be in format like 01, 02, 03a, 13, 27b, etc. (1-99 with optional letter)
+    - TITLE: Must be ALL CAPS
+    - Description: Regular text describing the plot point
+
+    **!help_lfg**
+    Show this help message.
+
+    **!create_poll <plot_point_ID> [min_players=2] [max_players=6]**
+    Create a scheduling poll for a plot point.
+
+    **!set_gamemaster @Username**
+    Set a user as the game master for the current poll.
+
+    **!suggest_dates YYYY-MM-DD HH:MM [YYYY-MM-DD HH:MM ...]**
+    Add date suggestions to the current poll.
+
+    # Status Management:
+    Use the buttons in the Plot-Point-Overview channel to:
+    - Activate a plot point (creates a dedicated channel)
+    - Deactivate a plot point (removes the channel)
+    - Mark a plot point as finished (removes the channel)
+    - Delete a plot point (removes it from the database)
+            """
+        await ctx.send(help_text)
 
     @bot.command(name='create_poll')
     async def create_poll(ctx, plot_point_id: str, min_players: int = 2, max_players: int = 6):
@@ -82,8 +119,8 @@ def register_commands(bot, update_overview_message):
             max_players = 10
 
         # Erstelle die Umfrage im aktuellen Kanal
-        from poll import poll_manager
-        await poll_manager.create_poll(
+        import shared
+        await shared.poll_manager.create_poll(
             ctx,
             plotpoint['id'],
             plotpoint['title'],
@@ -99,14 +136,14 @@ def register_commands(bot, update_overview_message):
         Format: !set_gamemaster @Benutzername
         """
         # Prüfe, ob es eine aktive Umfrage gibt
-        from poll import poll_manager
+        import shared
 
-        if ctx.channel.id not in poll_manager.active_polls:
+        if ctx.channel.id not in shared.poll_manager.active_polls:
             await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
             return
 
         # Prüfe Berechtigung (nur der Ersteller oder Admin)
-        poll_data = poll_manager.active_polls[ctx.channel.id]
+        poll_data = shared.poll_manager.active_polls[ctx.channel.id]
         is_creator = poll_data.get("created_by") == ctx.author.id
         is_admin = ctx.author.guild_permissions.administrator
 
@@ -118,9 +155,9 @@ def register_commands(bot, update_overview_message):
         poll_data["game_master_id"] = user.id
 
         # Aktualisiere die Umfrage
-        await poll_manager.update_poll(ctx.channel.id)
+        await shared.poll_manager.update_poll(ctx.channel.id)
 
-        await ctx.reply(f"{user.mention} wurde als Spielleiter:in festgelegt.")
+        await ctx.reply(f"{user.mention} wurde als Spielleitung festgelegt.")
 
     @bot.command(name='suggest_dates')
     async def suggest_dates(ctx, *dates):
@@ -129,20 +166,20 @@ def register_commands(bot, update_overview_message):
         Format: !suggest_dates YYYY-MM-DD HH:MM [YYYY-MM-DD HH:MM ...]
         Beispiel: !suggest_dates 2025-05-01 19:00 2025-05-02 20:00
         """
-        from poll import poll_manager
+        import shared
 
-        if ctx.channel.id not in poll_manager.active_polls:
+        if ctx.channel.id not in shared.poll_manager.active_polls:
             await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
             return
 
         # Prüfe Berechtigung
-        poll_data = poll_manager.active_polls[ctx.channel.id]
+        poll_data = shared.poll_manager.active_polls[ctx.channel.id]
         is_creator = poll_data.get("created_by") == ctx.author.id
         is_gm = poll_data.get("game_master_id") == ctx.author.id
         is_admin = ctx.author.guild_permissions.administrator
 
         if not (is_creator or is_gm or is_admin):
-            await ctx.reply("Nur der Ersteller, der Spielleiter oder ein Admin kann Termine vorschlagen.")
+            await ctx.reply("Nur der Ersteller, die Spielleitung oder ein Admin kann Termine vorschlagen.")
             return
 
         # Verarbeite die Datumsangaben (Format: YYYY-MM-DD HH:MM)
@@ -166,33 +203,5 @@ def register_commands(bot, update_overview_message):
         # Füge die neuen Termine hinzu
         if new_dates:
             poll_data["suggested_dates"].extend(new_dates)
-
-    @bot.command(name='help_lfg')
-    async def help_lfg(ctx):
-        """Display help information for the LFG bot commands"""
-        help_text = """
-        
-        
-# Plot Point LFG Bot Commands
-
-**!add_plot_point <ID> <TITLE> <Description>**
-Add a new plot point to the system.
-- ID: Must be in format like 01, 02, 03a, 13, 27b, etc. (1-99 with optional letter)
-- TITLE: Must be ALL CAPS
-- Description: Regular text describing the plot point
-
-**!help_lfg**
-Show this help message.
-
-# Examples:
-`!add_plot_point 01 THE BEGINNING This is where our adventure begins...`
-`!add_plot_point 13a SIDE QUEST This optional quest involves finding the lost artifact.`
-
-# Status Management:
-Use the buttons in the Plot-Point-Overview channel to:
-- Activate a plot point (creates a dedicated channel)
-- Deactivate a plot point (removes the channel)
-- Mark a plot point as finished (removes the channel)
-        """
-        await ctx.send(help_text)
-
+            await shared.poll_manager.update_poll(ctx.channel.id)
+            await ctx.reply(f"{len(new_dates)} neue Terminvorschläge wurden hinzugefügt.")
