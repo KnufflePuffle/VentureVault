@@ -190,15 +190,21 @@ async def on_interaction(interaction):
                 f"{plotpoint['description']}\n\n"
                 f"In diesem Kanal kann die Koordination des Plot Points besprochen werden."
             )
+            # Send game master selection message in the channel instead of as ephemeral
+            await channel.send(
+                f"# Spielleitungswahl\n"
+                f"<@{interaction.user.id}> hat diesen Plot Point aktiviert. Bitte wählt eine Spielleitung aus:",
+                view=GameMasterSelectionView(plotpoint, channel, interaction.user, shared.poll_manager)
+            )
 
         # Update plotpoint status in database
         if db.update_plotpoint_status(plotpoint_id, 'Active', str(channel.id)):
             # After channel creation and database update, start the dialog
             # Access poll_manager from shared
             await interaction.response.send_message(
-                content=f"Plot Point {plotpoint_id} wurde aktiviert! Wähle nun einen Spielleiter für die Terminumfrage:",
+                content=f"Plot Point {plotpoint_id} wurde aktiviert!",
                 ephemeral=True,
-                view=GameMasterSelectionView(plotpoint, channel, interaction.user, shared.poll_manager)
+                #view=GameMasterSelectionView(plotpoint, channel, interaction.user, shared.poll_manager)
             )
         else:
             # Error updating status

@@ -4,7 +4,7 @@ from discord.ext import commands
 import datetime
 import db
 import shared  # Import shared module for access to poll_manager
-
+import plot_vote
 
 def register_commands(bot, update_overview_message):
     """Register all bot commands"""
@@ -86,6 +86,12 @@ def register_commands(bot, update_overview_message):
 
     **!suggest_dates YYYY-MM-DD HH:MM [YYYY-MM-DD HH:MM ...]**
     Add date suggestions to the current poll.
+    
+    **!set_players [min_spieler:innen] [max_spieler:innen]**
+    Change the number of players.
+    
+    **Format: !start_plot_vote [dauer_in_stunden=72]**
+    Create a poll to decide the next plot point.
 
     # Status Management:
     Use the buttons in the Plot-Point-Overview channel to:
@@ -97,7 +103,7 @@ def register_commands(bot, update_overview_message):
         await ctx.send(help_text)
 
     @bot.command(name='create_poll')
-    async def create_poll(ctx, plot_point_id: str, min_players: int = 2, max_players: int = 6):
+    async def create_poll(ctx, plot_point_id: str, min_players: int = 3, max_players: int = 6):
         """
         Erstelle eine Terminumfrage für einen Plot Point
         Format: !create_poll <plot_point_ID> [min_spieler=2] [max_spieler=6]
@@ -149,7 +155,7 @@ def register_commands(bot, update_overview_message):
         is_admin = ctx.author.guild_permissions.administrator
 
         if not (is_creator or is_admin):
-            await ctx.reply("Nur der Ersteller der Umfrage oder ein Admin kann den Spielleiter ändern.")
+            await ctx.reply("Nur Ersteller:in der Umfrage oder Admin kann die Spielleitung ändern.")
             return
 
         # Setze den neuen Spielleiter
@@ -174,15 +180,7 @@ def register_commands(bot, update_overview_message):
             await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
             return
 
-        # Prüfe Berechtigung
-        poll_data = poll_manager.active_polls[ctx.channel.id]
-        is_creator = poll_data.get("created_by") == ctx.author.id
-        is_gm = poll_data.get("game_master_id") == ctx.author.id
-        is_admin = ctx.author.guild_permissions.administrator
-
-        if not (is_creator or is_gm or is_admin):
-            await ctx.reply("Nur der Ersteller, die Spielleitung oder ein Admin kann Termine vorschlagen.")
-            return
+        # REMOVED permission check - Now anyone can suggest dates
 
         # Verarbeite die Datumsangaben (Format: YYYY-MM-DD HH:MM)
         new_dates = []
@@ -204,6 +202,96 @@ def register_commands(bot, update_overview_message):
 
         # Füge die neuen Termine hinzu
         if new_dates:
+            poll_data = poll_manager.active_polls[ctx.channel.id]
             poll_data["suggested_dates"].extend(new_dates)
             await poll_manager.update_poll(ctx.channel.id)
             await ctx.reply(f"{len(new_dates)} neue Terminvorschläge wurden hinzugefügt.")
+
+    # Add this command to the register_commands function in commands.py
+
+    @bot.command(name='set_players')
+    async def set_players(ctx, min_players: int = None, max_players: int = None):
+        """
+        Ändert die minimale und maximale Spieler:innenanzahl für die aktuelle Terminumfrage
+        Format: !set_players [min_spieler:innen] [max_spieler:innen]
+        Beispiel: !set_players 3 5
+        """
+        # Access poll_manager from shared module
+        poll_manager = shared.poll_manager
+
+        if ctx.channel.id not in poll_manager.active_polls:
+            await ctx.reply("Es gibt keine aktive Terminumfrage in diesem Kanal.")
+            return
+
+        # Get the poll data for this channel
+        poll_data = poll_manager.active_polls[ctx.channel.id]
+
+        # Check permissions (only creator, GM or admin)
+        is_creator = poll_data.get("created_by") == ctx.author.id
+        is_gm = poll_data.get("game_master_id") == ctx.author.id
+        is_admin = ctx.author.guild_permissions.administrator
+
+        if not (is_creator or is_gm or is_admin):
+            await ctx.reply("Nur Ersteller:in, Spielleitung oder Admin kann die Spieler:innenzahl ändern.")
+            return
+
+        # Current values (for reporting changes)
+        current_min = poll_data["min_players"]
+        current_max = poll_data["max_players"]
+
+        # Handle various input cases
+        if min_players is None and max_players is None:
+            # No parameters - show current settings
+            await ctx.reply(f"Aktuelle Einstellungen: Minimum {current_min} Spieler:innen, Maximum {current_max} Spieler:innen.")
+            return
+
+        # If only min_players is provided
+        if max_players is None:
+            max_players = max(min_players, current_max)
+
+        # Validate parameters
+        if min_players is not None:
+            if min_players < 1:
+                min_players = 1
+                await ctx.send(f"Mindestspieler:innenzahl wurde auf 1 gesetzt (Minimum).")
+
+        if max_players < min_players:
+            max_players = min_players
+            await ctx.send(f"Maximalspieler:innenzahl wurde auf {min_players} gesetzt (gleich dem Minimum).")
+
+        if max_players > 15:
+            max_players = 15
+            await ctx.send(f"Maximalspiele:innenrzahl wurde auf 15 gesetzt (Maximum).")
+
+        # Update the poll data
+        poll_data["min_players"] = min_players
+        poll_data["max_players"] = max_players
+
+        # Update the poll message
+        await poll_manager.update_poll(ctx.channel.id)
+
+        # Confirm the change
+        await ctx.reply(
+            f"Spieler:innenzahl wurde aktualisiert: Minimum {min_players} Spieler:innen, Maximum {max_players} Spieler:innen.")
+
+
+    @bot.command(name='start_plot_vote')
+    async def start_plot_vote(ctx, duration: int = 72):
+        """
+        Startet eine Abstimmung über inaktive Plot Points
+        Format: !start_plot_vote [dauer_in_stunden=48]
+        """
+
+        # Import the plot vote system
+        from plot_vote import create_plot_vote
+
+        # Validate duration
+        if duration < 1:
+            duration = 1
+        elif duration > 168:  # 1 week
+            duration = 168
+
+        # Create the vote
+        success, message = await create_plot_vote(ctx.channel, duration)
+
+        await ctx.reply(message)

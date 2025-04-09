@@ -28,7 +28,7 @@ class PlotpointButtons(ui.View):
         if current_status != 'Finished':
             finish_button = ui.Button(
                 style=ButtonStyle.danger,
-                label="Mark Finished",
+                label="Finished",
                 custom_id=f"finish_{plotpoint_id}"
             )
             self.add_item(finish_button)
@@ -144,7 +144,7 @@ class GameMasterSelectionView(discord.ui.View):
             # Send helpful message about poll commands
             await self.channel.send(
                 "**Terminumfrage wurde erstellt!**\n\n"
-                f"{'Spielleiter wurde festgelegt.' if self.selected_gm else 'Kein Spielleiter festgelegt.'}\n"
+                f"{'Spielleitung wurde festgelegt.' if self.selected_gm else 'Keine Spielleitung festgelegt.'}\n"
                 "Verfügbare Befehle:\n"
                 "- `!suggest_dates YYYY-MM-DD HH:MM` um zusätzliche Terminvorschläge zu machen\n"
                 "- `!set_gamemaster @Benutzername` um eine Spielleitung festzulegen oder zu ändern"
